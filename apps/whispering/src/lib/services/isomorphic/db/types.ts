@@ -45,7 +45,7 @@ export type DbService = {
 
 		/**
 		 * Get audio playback URL. Creates and caches URL.
-		 * - Desktop: Uses convertFileSrc() to create asset:// URL
+		 * - Desktop: Reads file, converts float WAV to PCM if needed, creates object URL
 		 * - Web: Creates and caches object URL, manages lifecycle
 		 */
 		ensureAudioPlaybackUrl(
@@ -54,7 +54,7 @@ export type DbService = {
 
 		/**
 		 * Revoke audio URL if cached. Cleanup method.
-		 * - Desktop: No-op (asset:// URLs managed by Tauri)
+		 * - Desktop: Calls URL.revokeObjectURL() and removes from cache
 		 * - Web: Calls URL.revokeObjectURL() and removes from cache
 		 */
 		revokeAudioUrl(recordingId: string): void;
