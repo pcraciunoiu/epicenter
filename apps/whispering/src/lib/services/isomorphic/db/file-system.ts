@@ -388,8 +388,7 @@ export function createFileSystemDb(): DbService {
 						const cachedUrl = audioUrlCache.get(recordingId);
 						if (cachedUrl) return cachedUrl;
 
-						const { data: blob, error } =
-							await this.getAudioBlob(recordingId);
+						const { data: blob, error } = await this.getAudioBlob(recordingId);
 						if (error) throw error;
 
 						const playableBlob = await ensurePlayableWavBlob(blob);

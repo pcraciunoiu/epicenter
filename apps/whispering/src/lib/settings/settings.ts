@@ -36,8 +36,8 @@ import {
 	RECORDING_MODES,
 } from '$lib/constants/audio';
 import { CommandOrAlt, CommandOrControl } from '$lib/constants/keyboard';
-import { IS_LINUX } from '$lib/constants/platform/is-linux';
 import { SUPPORTED_LANGUAGES } from '$lib/constants/languages';
+import { IS_LINUX } from '$lib/constants/platform/is-linux';
 import { ALWAYS_ON_TOP_MODES, LAYOUT_MODES } from '$lib/constants/ui';
 import {
 	FFMPEG_DEFAULT_COMPRESSION_OPTIONS,
