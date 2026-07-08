@@ -145,6 +145,26 @@ On Wayland, in-app global shortcuts (`tauri-plugin-global-shortcut`) only fire w
 
 Whispering must already be running (start it normally or enable autostart). A second CLI invocation talks to the running instance via single-instance IPC.
 
+### Startup script (PTT + toggle)
+
+`scripts/linux/whispering-start.sh` launches Whispering and the evdev listener together. Defaults:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WHISPERING_PTT_KEY` | `F14` | Hold-to-talk |
+| `WHISPERING_TOGGLE_KEY` | `F13` | Tap-to-toggle |
+| `WHISPERING_BIN` | `/usr/bin/whispering` | Installed binary |
+| `WHISPERING_LISTENER` | `~/.local/bin/whispering-ptt-listener.py` | Listener script |
+| `WHISPERING_START_LISTENER` | `1` | Set `0` to skip the listener |
+
+```bash
+cp scripts/linux/whispering-start.sh ~/.local/bin/
+chmod +x ~/.local/bin/whispering-start.sh
+WHISPERING_PTT_KEY=F14 WHISPERING_TOGGLE_KEY=F13 ~/.local/bin/whispering-start.sh
+```
+
+The same env vars are read by the desktop app on startup when set in the process environment.
+
 ### Toggle recording (recommended)
 
 1. Open **Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts**.

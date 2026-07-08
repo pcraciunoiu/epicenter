@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Listen for Moonlander F-key press/release and drive Whispering PTT via CLI."""
+"""Listen for PTT and toggle keys and drive Whispering via CLI."""
 
 from __future__ import annotations
 
 import argparse
 import errno
+import os
 import subprocess
 import sys
 import time
@@ -13,7 +14,8 @@ import evdev
 from evdev import ecodes
 
 DEFAULT_WHISPERING = "/usr/bin/whispering"
-DEFAULT_PTT_KEY = "F14"
+DEFAULT_PTT_KEY = os.environ.get("WHISPERING_PTT_KEY", "F14")
+DEFAULT_TOGGLE_KEY = os.environ.get("WHISPERING_TOGGLE_KEY", "F13")
 RECONNECT_DELAY_S = 1.0
 
 
@@ -130,8 +132,10 @@ def run_whispering(whispering: str, command_args: list[str]) -> None:
 
 def handle_event(
 	event: evdev.InputEvent,
-	ptt_key: int,
+	ptt_key: int | None,
 	ptt_key_name: str,
+	toggle_key: int | None,
+	toggle_key_name: str,
 	whispering: str,
 	debug: bool,
 ) -> None:
@@ -142,20 +146,27 @@ def handle_event(
 			f"debug: code={event.code} ({key_name(event.code)}) value={event.value}",
 			flush=True,
 		)
-	if event.code != ptt_key:
+
+	if ptt_key is not None and event.code == ptt_key:
+		if event.value == 1:
+			print(f"{ptt_key_name} down → start recording", flush=True)
+			run_whispering(whispering, ["--start-recording"])
+		elif event.value == 0:
+			print(f"{ptt_key_name} up → stop recording", flush=True)
+			run_whispering(whispering, ["--stop-recording"])
 		return
-	if event.value == 1:
-		print(f"{ptt_key_name} down → start recording", flush=True)
-		run_whispering(whispering, ["--start-recording"])
-	elif event.value == 0:
-		print(f"{ptt_key_name} up → stop recording", flush=True)
-		run_whispering(whispering, ["--stop-recording"])
+
+	if toggle_key is not None and event.code == toggle_key and event.value == 1:
+		print(f"{toggle_key_name} down → toggle recording", flush=True)
+		run_whispering(whispering, ["--toggle-recording"])
 
 
 def listen_loop(
 	device_path: str | None,
-	ptt_key: int,
+	ptt_key: int | None,
 	ptt_key_name: str,
+	toggle_key: int | None,
+	toggle_key_name: str,
 	whispering: str,
 	debug: bool,
 	grab: bool,
@@ -165,7 +176,15 @@ def listen_loop(
 	while True:
 		try:
 			for event in device.read_loop():
-				handle_event(event, ptt_key, ptt_key_name, whispering, debug)
+				handle_event(
+					event,
+					ptt_key,
+					ptt_key_name,
+					toggle_key,
+					toggle_key_name,
+					whispering,
+					debug,
+				)
 		except OSError as error:
 			if error.errno != errno.ENODEV:
 				raise
@@ -197,7 +216,15 @@ def main() -> None:
 	parser.add_argument(
 		"--key",
 		default=DEFAULT_PTT_KEY,
-		help=f"Key to listen for (default: {DEFAULT_PTT_KEY})",
+		help=f"PTT key to listen for (default: {DEFAULT_PTT_KEY}, env WHISPERING_PTT_KEY)",
+	)
+	parser.add_argument(
+		"--toggle-key",
+		default=DEFAULT_TOGGLE_KEY,
+		help=(
+			f"Toggle key to listen for (default: {DEFAULT_TOGGLE_KEY}, "
+			"env WHISPERING_TOGGLE_KEY; pass 'none' to disable)"
+		),
 	)
 	parser.add_argument(
 		"--debug",
@@ -214,15 +241,32 @@ def main() -> None:
 	)
 	cli_args = parser.parse_args()
 
-	ptt_key = parse_ptt_key(cli_args.key)
+	ptt_key = None if cli_args.key.lower() == "none" else parse_ptt_key(cli_args.key)
+	toggle_key = (
+		None
+		if cli_args.toggle_key.lower() == "none"
+		else parse_ptt_key(cli_args.toggle_key)
+	)
+
+	if ptt_key is None and toggle_key is None:
+		raise SystemExit("At least one of --key or --toggle-key must be set.")
+
+	ptt_key_name = cli_args.key
+	toggle_key_name = cli_args.toggle_key
 
 	probe = open_device(cli_args.device, grab=False)
 	print(f"Listening on {probe.path} ({probe.name})")
-	print(f"PTT key {cli_args.key} = evdev code {ptt_key}")
-	print(
-		f"{cli_args.key} press → start, {cli_args.key} release → stop "
-		f"via {cli_args.whispering}",
-	)
+	if ptt_key is not None:
+		print(f"PTT key {ptt_key_name} = evdev code {ptt_key}")
+	if toggle_key is not None:
+		print(f"Toggle key {toggle_key_name} = evdev code {toggle_key}")
+	if ptt_key is not None:
+		print(
+			f"{ptt_key_name} press → start, {ptt_key_name} release → stop "
+			f"via {cli_args.whispering}",
+		)
+	if toggle_key is not None:
+		print(f"{toggle_key_name} press → toggle via {cli_args.whispering}")
 	print("Whispering must already be running.")
 	print("Quit evtest before running this script.")
 	print("Press Ctrl+C to stop.\n", flush=True)
@@ -231,7 +275,9 @@ def main() -> None:
 	listen_loop(
 		cli_args.device,
 		ptt_key,
-		cli_args.key,
+		ptt_key_name,
+		toggle_key,
+		toggle_key_name,
 		cli_args.whispering,
 		cli_args.debug,
 		cli_args.grab,
