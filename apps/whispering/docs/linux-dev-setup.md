@@ -188,7 +188,7 @@ The portal and hold-to-talk backend are not ready yet. You can approximate PTT w
 1. Map hold-to-talk to **F14** and tap-to-toggle to **F15** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F14`/`KEY_F15`, value 1/0).
 2. Install deps: `sudo apt install python3-evdev evtest`
 3. Copy `scripts/linux/whispering-ptt-listener.py` to `~/.local/bin/` and chmod +x.
-4. **Find the correct evdev node** — on many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface (`event8`). Run `evtest` on each Moonlander node until you see your key; the listener auto-detects the generic node by default:
+4. **Find the correct evdev node** — on many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface. Run `evtest` on each Moonlander node until you see your key; the listener auto-detects the generic node by default:
 
 ```bash
 ~/.local/bin/whispering-ptt-listener.py
