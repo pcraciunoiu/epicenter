@@ -4,9 +4,9 @@ use tauri::WebviewWindow;
 
 /// Disable WebKitGTK media-session / MPRIS registration on the main webview.
 ///
-/// HTML `<audio>` / `<video>` elements otherwise register GNOME media-player
-/// cards (often stacking ghost sessions when `src` changes after each recording).
-/// In-app playback still works; only the system MPRIS surface is suppressed.
+/// Best-effort: some WebKitGTK builds still register MPRIS for HTML `<audio>`
+/// even with this off. The reliable fix is deferring `src` until user play
+/// (`LazyAudio.svelte`). This remains as defense in depth.
 ///
 /// `enable-media-session` has no typed setter in the pinned `webkit2gtk` crate,
 /// so we set it by GObject property name when present (WebKitGTK 2.40+).
@@ -15,11 +15,20 @@ pub fn disable_media_session(win: &WebviewWindow) -> Result<(), String> {
         use webkit2gtk::glib::prelude::ObjectExt;
         use webkit2gtk::WebViewExt;
 
-        if let Some(settings) = platform.inner().settings() {
-            if settings.find_property("enable-media-session").is_some() {
-                settings.set_property("enable-media-session", false);
-            }
+        let Some(settings) = platform.inner().settings() else {
+            log::warn!("WebKit settings unavailable; cannot disable media-session");
+            return;
+        };
+
+        if settings.find_property("enable-media-session").is_none() {
+            log::warn!(
+                "WebKit setting enable-media-session not found; MPRIS may still register"
+            );
+            return;
         }
+
+        settings.set_property("enable-media-session", false);
+        log::info!("Disabled WebKit enable-media-session (MPRIS)");
     })
     .map_err(|e| e.to_string())
 }
