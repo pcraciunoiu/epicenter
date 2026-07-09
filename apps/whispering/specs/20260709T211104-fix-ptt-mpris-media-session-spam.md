@@ -2,52 +2,66 @@
 
 ## Problem
 
-On Linux (GNOME), each Push-to-Talk release adds another "Whispering" media-player card in the notification/media area (prev / pause / next controls). The screenshot shows several identical stacked entries.
+On Linux (GNOME), each Push-to-Talk release adds another "Whispering" media-player card in the notification/media area (prev / pause / next controls).
 
-These are **not** duplicate database recordings. They are **MPRIS media sessions** created by WebKitGTK when UI feedback sounds play through `HTMLAudioElement.play()`.
+These are **not** duplicate database recordings. They are **MPRIS media sessions** from WebKitGTK.
 
-## Root cause
+## Findings (alpha.3 field test)
 
-1. PTT release → `stopManualRecording` → `sound.playSoundIfEnabled.execute('manual-stop')`
-2. Sound service calls `audioElements[soundName].play()` on a shared `HTMLAudioElement`
+1. **UI beeps** — Web Audio fix works (sounds audible again without using `HTMLAudioElement`).
+2. **Stacking still happens** — each PTT release still adds a media card.
+3. **Playing one card clears the others**; Play always plays the **latest** recording.
+
+That points at the home-page latest-recording `<audio controls>` in `+page.svelte`: after each save, `blobUrl` updates → WebKit registers another MPRIS session for the same player, and ghost cards pile up until one is activated.
+
+## Root cause (revised)
+
+1. PTT release → recording saved → `latestRecording` / `blobUrl` updates
+2. Home page `<audio src={blobUrl} controls>` loads the new blob
 3. WebKitGTK exposes HTML media elements over MPRIS ([WebKit bug 247527](https://bugs.webkit.org/show_bug.cgi?id=247527))
-4. Sessions often fail to unregister cleanly, so each PTT release stacks another "Whispering" player
+4. Sessions fail to replace cleanly → stacked "Whispering" players; activating one collapses ghosts onto the current element
 
-Same path fires for start/cancel/VAD/transcription sounds.
+UI beep `HTMLAudioElement`s were a secondary contributor (fixed in alpha.3 via Web Audio).
 
-## Approach (minimal)
+## Approach
 
-Play UI feedback sounds via the **Web Audio API** (`AudioContext` + decoded buffers) instead of `HTMLAudioElement`.
+1. **alpha.3:** Play UI feedback sounds via Web Audio (done).
+2. **alpha.4:** Disable WebKitGTK media-session / MPRIS on the main webview at startup (Linux only), same pattern as [psysonic#1069](https://github.com/Psychotoxical/psysonic/pull/1069):
 
-- Web Audio does not register MPRIS players
-- Keeps the existing sound names / settings / query mutation API
-- Leaves the intentional recording `<audio controls>` player alone (user-initiated playback)
+```rust
+if settings.find_property("enable-media-session").is_some() {
+    settings.set_property("enable-media-session", false);
+}
+```
+
+- In-app `<audio controls>` playback still works
+- GNOME media area no longer gets Whispering MPRIS cards
+- Guard with `find_property` so older WebKitGTK does not panic
 
 ## Out of scope
 
-- Changing PTT start/stop recording logic (that correctly creates one DB recording per hold)
-- Disabling WebKit media-session globally in Rust (heavier, platform-specific)
+- Changing PTT start/stop recording logic
+- Removing the home-page `<audio controls>` player
 - Changing the recordings list / DB create path
 
 ## Todos
 
-- [x] Update sound asset module to decode MP3s into `AudioBuffer`s (lazy or on first play)
-- [x] Update desktop + web sound services to play via `AudioContext` instead of `HTMLAudioElement.play()`
-- [x] Verify recording `<audio controls>` on home page is unchanged
-- [ ] Manual check: PTT press/release no longer stacks GNOME media-player cards (via alpha.3 deb)
+- [x] Play UI feedback sounds via Web Audio (alpha.3)
+- [x] Add Linux-only helper to set WebKit `enable-media-session` = false on main webview
+- [x] Call it from `setup` in `lib.rs`
+- [x] Add `webkit2gtk` Linux dependency
+- [x] Bump to `v7.12.0-alpha.4`, release notes, push tag to rebuild deb
+- [ ] Manual check: PTT no longer stacks GNOME media cards; in-app audio still plays
 
 ## Review
 
-### Changes
+### alpha.3
 
-- `src/lib/services/isomorphic/sound/assets/index.ts` — replaced shared `HTMLAudioElement`s with `playUiSound()` using `AudioContext` + cached `AudioBuffer`s
-- `desktop.ts` / `web.ts` — call `playUiSound` instead of `.play()` on media elements
-- Home-page recording `<audio controls>` left untouched (intentional user playback)
+- `sound/assets/index.ts` — `playUiSound()` via `AudioContext` + cached buffers
+- `desktop.ts` / `web.ts` — use `playUiSound`
 
-### Why this works
+### alpha.4
 
-Web Audio API playback does not create HTML media elements, so WebKitGTK does not register MPRIS sessions for UI beeps. Each PTT release should no longer add a GNOME media-player card.
-
-### Release
-
-Shipped as `v7.12.0-alpha.3` for Linux deb testing.
+- `src-tauri/src/linux_webkit.rs` — `disable_media_session()` sets GObject `enable-media-session` = false
+- `src-tauri/src/lib.rs` — call on main window during setup (Linux only)
+- `Cargo.toml` — `webkit2gtk = "2.0.1"` for Linux target

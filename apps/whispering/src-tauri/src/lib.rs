@@ -32,6 +32,9 @@ use external_commands::{
     parse_external_recording_command, take_pending_external_recording_command,
 };
 
+#[cfg(target_os = "linux")]
+mod linux_webkit;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
@@ -115,6 +118,17 @@ pub async fn run() {
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
             app.manage(init_pending_external_recording_command(&args));
+
+            // Stop WebKitGTK from registering MPRIS media-player cards for
+            // HTML <audio> (home-page latest recording, etc.). Ghost sessions
+            // otherwise stack on each PTT save when blobUrl updates.
+            #[cfg(target_os = "linux")]
+            if let Some(win) = app.get_webview_window("main") {
+                if let Err(error) = linux_webkit::disable_media_session(&win) {
+                    warn!("Failed to disable WebKit media session: {error}");
+                }
+            }
+
             Ok(())
         });
 
