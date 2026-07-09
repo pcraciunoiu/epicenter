@@ -145,25 +145,22 @@ On Wayland, in-app global shortcuts (`tauri-plugin-global-shortcut`) only fire w
 
 Whispering must already be running (start it normally or enable autostart). A second CLI invocation talks to the running instance via single-instance IPC.
 
-### Startup script (PTT + toggle)
+### PTT listener setup
 
-`scripts/linux/whispering-start.sh` launches Whispering and the evdev listener together. Defaults:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `WHISPERING_PTT_KEY` | `F14` | Hold-to-talk |
-| `WHISPERING_TOGGLE_KEY` | `F15` | Tap-to-toggle |
-| `WHISPERING_BIN` | `/usr/bin/whispering` | Installed binary |
-| `WHISPERING_LISTENER` | `~/.local/bin/whispering-ptt-listener.py` | Listener script |
-| `WHISPERING_START_LISTENER` | `1` | Set `0` to skip the listener |
+Configure keys and device in `~/.config/whispering/ptt.conf` (see `scripts/linux/whispering-ptt.conf.example`). Omit `ptt_key` or `toggle_key` to disable that binding. Run the listener via systemd (recommended) or directly.
 
 ```bash
-cp scripts/linux/whispering-start.sh ~/.local/bin/
-chmod +x ~/.local/bin/whispering-start.sh
-WHISPERING_PTT_KEY=F14 WHISPERING_TOGGLE_KEY=F15 ~/.local/bin/whispering-start.sh
+mkdir -p ~/.config/whispering
+cp scripts/linux/whispering-ptt.conf.example ~/.config/whispering/ptt.conf
+# edit ~/.config/whispering/ptt.conf
+cp scripts/linux/whispering-ptt-listener.py ~/.local/bin/
+chmod +x ~/.local/bin/whispering-ptt-listener.py
+cp scripts/linux/whispering-ptt.service.example ~/.config/systemd/user/whispering-ptt.service
+systemctl --user daemon-reload
+systemctl --user enable --now whispering-ptt.service
 ```
 
-These env vars configure the evdev listener only; they do not change in-app global shortcut settings.
+Start Whispering normally (desktop entry or `/usr/bin/whispering`). The listener talks to the running instance via CLI.
 
 ### Toggle recording (recommended)
 
@@ -183,20 +180,21 @@ Dev builds use a different binary path, typically under `src-tauri/target/debug/
 
 ### Hacky push-to-talk via start/stop (optional)
 
-The portal and hold-to-talk backend are not ready yet. You can approximate PTT with a Moonlander key mapped to **F14** (and toggle to **F15**) in Oryx plus a small evdev listener.
+The portal and hold-to-talk backend are not ready yet. You can approximate PTT with a Moonlander key mapped to **F14** in Oryx plus a small evdev listener.
 
-1. Map hold-to-talk to **F14** and tap-to-toggle to **F15** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F14`/`KEY_F15`, value 1/0).
+1. Map hold-to-talk to **F14** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F14`, value 1/0). Optionally map toggle to **F15** and set `toggle_key` in the config.
 2. Install deps: `sudo apt install python3-evdev evtest`
 3. Copy `scripts/linux/whispering-ptt-listener.py` to `~/.local/bin/` and chmod +x.
-4. **Find the correct evdev node** — on many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface. Run `evtest` on each Moonlander node until you see your key; the listener auto-detects the generic node by default:
+4. Create `~/.config/whispering/ptt.conf` from `scripts/linux/whispering-ptt.conf.example`. Prefer `device_name`; use `device=/dev/input/eventN` only if needed. On many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface.
+5. Run the listener:
 
 ```bash
 ~/.local/bin/whispering-ptt-listener.py
-# or explicitly:
-~/.local/bin/whispering-ptt-listener.py --device /dev/input/event4
+# or:
+~/.local/bin/whispering-ptt-listener.py --config ~/.config/whispering/ptt.conf
 ```
 
-5. Autostart the listener with a user systemd unit (see `scripts/linux/whispering-ptt.service.example`).
+6. Autostart the listener with a user systemd unit (see `scripts/linux/whispering-ptt.service.example`).
 
 CLI flags (Whispering must be running):
 

@@ -1,25 +1,45 @@
 #!/usr/bin/env python3
-"""Listen for PTT and toggle keys and drive Whispering via CLI."""
+"""Listen for PTT and toggle keys and drive Whispering via CLI.
 
-from __future__ import annotations
+Configuration: ~/.config/whispering/ptt.conf (see scripts/linux/whispering-ptt.conf.example).
+Omit ptt_key or toggle_key to disable that binding.
+"""
 
 import argparse
+import configparser
 import errno
 import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import evdev
 from evdev import ecodes
 
 DEFAULT_WHISPERING = "/usr/bin/whispering"
-DEFAULT_PTT_KEY = os.environ.get("WHISPERING_PTT_KEY", "F14")
-DEFAULT_TOGGLE_KEY = os.environ.get("WHISPERING_TOGGLE_KEY", "F15")
+DEFAULT_CONFIG = Path.home() / ".config" / "whispering" / "ptt.conf"
+DEFAULT_DEVICE_NAME = "ZSA Technology Labs Moonlander Mark I"
 RECONNECT_DELAY_S = 1.0
 
+MOONLANDER_SPECIALIZED_SUFFIXES = (
+	"System Control",
+	"Consumer Control",
+	"Keyboard",
+)
 
-def parse_ptt_key(name: str) -> int:
+
+@dataclass(frozen=True)
+class ListenerConfig:
+	device: str | None
+	device_name: str | None
+	ptt_key: str | None
+	toggle_key: str | None
+	whispering: str
+
+
+def parse_key(name: str) -> int:
 	key = name.upper()
 	if not key.startswith("F") and key.isdigit():
 		key = f"F{key}"
@@ -33,22 +53,55 @@ def key_name(code: int) -> str:
 	return ecodes.KEY.get(code, str(code))
 
 
-MOONLANDER_PTT_DEVICE_NAME = "ZSA Technology Labs Moonlander Mark I"
-MOONLANDER_SPECIALIZED_SUFFIXES = (
-	"System Control",
-	"Consumer Control",
-	"Keyboard",
-)
+def optional_str(value: str | None) -> str | None:
+	if value is None:
+		return None
+	trimmed = value.strip()
+	return trimmed or None
+
+
+def load_config(path: Path) -> ListenerConfig:
+	if not path.is_file():
+		raise SystemExit(
+			f"Config not found: {path}\n"
+			"Copy scripts/linux/whispering-ptt.conf.example to "
+			"~/.config/whispering/ptt.conf and edit it.",
+		)
+
+	parser = configparser.ConfigParser()
+	parser.read(path)
+	if not parser.has_section("ptt"):
+		raise SystemExit(f"Config {path} must contain a [ptt] section.")
+
+	section = parser["ptt"]
+	return ListenerConfig(
+		device=optional_str(section.get("device")),
+		device_name=optional_str(section.get("device_name")),
+		ptt_key=optional_str(section.get("ptt_key")),
+		toggle_key=optional_str(section.get("toggle_key")),
+		whispering=optional_str(section.get("whispering")) or DEFAULT_WHISPERING,
+	)
+
+
+def find_device_by_name(device_name: str) -> evdev.InputDevice:
+	matches: list[evdev.InputDevice] = []
+	for path in sorted(evdev.list_devices()):
+		device = evdev.InputDevice(path)
+		if (device.name or "") == device_name:
+			matches.append(device)
+
+	if not matches:
+		raise SystemExit(
+			f"No input device named {device_name!r}.\n"
+			"Run: evtest --list\n"
+			"Then set device= or device_name= in ~/.config/whispering/ptt.conf",
+		)
+
+	return sorted(matches, key=lambda device: device.path)[0]
 
 
 def find_moonlander_ptt_device() -> evdev.InputDevice:
-	"""Find the Moonlander evdev node that receives PTT keys.
-
-	On many setups (including GNOME Wayland), F14/F15 arrive on the generic
-	'ZSA Technology Labs Moonlander Mark I' node (often event4), not the
-	separate 'Keyboard' interface. Use evtest on each node to
-	confirm which one sees your PTT key.
-	"""
+	"""Fallback auto-detect for Moonlander when config has no device/device_name."""
 	candidates: list[evdev.InputDevice] = []
 
 	for path in sorted(evdev.list_devices()):
@@ -60,13 +113,14 @@ def find_moonlander_ptt_device() -> evdev.InputDevice:
 
 	if not candidates:
 		raise SystemExit(
-			"Moonlander not found. Plug it in and run: evtest --list or evtest",
+			"Moonlander not found. Plug it in and run: evtest --list or evtest\n"
+			"Or set device= / device_name= in ~/.config/whispering/ptt.conf",
 		)
 
 	generic = [
 		device
 		for device in candidates
-		if (device.name or "") == MOONLANDER_PTT_DEVICE_NAME
+		if (device.name or "") == DEFAULT_DEVICE_NAME
 	]
 	if generic:
 		return sorted(generic, key=lambda device: device.path)[0]
@@ -80,16 +134,20 @@ def find_moonlander_ptt_device() -> evdev.InputDevice:
 	raise SystemExit(
 		"Moonlander PTT device not found. Candidates:\n"
 		f"{names}\n"
-		"Pass the path that shows your PTT key in evtest with --device.",
+		"Set device= to the path that shows your PTT key in evtest.",
 	)
 
 
-def open_device(device_path: str | None, grab: bool) -> evdev.InputDevice:
-	device = (
-		evdev.InputDevice(device_path)
-		if device_path
-		else find_moonlander_ptt_device()
-	)
+def resolve_device(config: ListenerConfig) -> evdev.InputDevice:
+	if config.device:
+		return evdev.InputDevice(config.device)
+	if config.device_name:
+		return find_device_by_name(config.device_name)
+	return find_moonlander_ptt_device()
+
+
+def open_device(config: ListenerConfig, grab: bool) -> evdev.InputDevice:
+	device = resolve_device(config)
 
 	if grab:
 		try:
@@ -133,9 +191,9 @@ def run_whispering(whispering: str, command_args: list[str]) -> None:
 def handle_event(
 	event: evdev.InputEvent,
 	ptt_key: int | None,
-	ptt_key_name: str,
+	ptt_key_name: str | None,
 	toggle_key: int | None,
-	toggle_key_name: str,
+	toggle_key_name: str | None,
 	whispering: str,
 	debug: bool,
 ) -> None:
@@ -162,16 +220,15 @@ def handle_event(
 
 
 def listen_loop(
-	device_path: str | None,
+	config: ListenerConfig,
 	ptt_key: int | None,
-	ptt_key_name: str,
+	ptt_key_name: str | None,
 	toggle_key: int | None,
-	toggle_key_name: str,
-	whispering: str,
+	toggle_key_name: str | None,
 	debug: bool,
 	grab: bool,
 ) -> None:
-	device = open_device(device_path, grab)
+	device = open_device(config, grab)
 
 	while True:
 		try:
@@ -182,7 +239,7 @@ def listen_loop(
 					ptt_key_name,
 					toggle_key,
 					toggle_key_name,
-					whispering,
+					config.whispering,
 					debug,
 				)
 		except OSError as error:
@@ -195,7 +252,7 @@ def listen_loop(
 			)
 			release_device(device, grab)
 			time.sleep(RECONNECT_DELAY_S)
-			device = open_device(device_path, grab)
+			device = open_device(config, grab)
 			print(
 				f"Reconnected to {device.path} ({device.name})",
 				flush=True,
@@ -205,26 +262,9 @@ def listen_loop(
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Whispering PTT listener")
 	parser.add_argument(
-		"--device",
-		help="Input device path from evtest (default: auto-detect Moonlander PTT node)",
-	)
-	parser.add_argument(
-		"--whispering",
-		default=DEFAULT_WHISPERING,
-		help=f"Whispering binary path (default: {DEFAULT_WHISPERING})",
-	)
-	parser.add_argument(
-		"--key",
-		default=DEFAULT_PTT_KEY,
-		help=f"PTT key to listen for (default: {DEFAULT_PTT_KEY}, env WHISPERING_PTT_KEY)",
-	)
-	parser.add_argument(
-		"--toggle-key",
-		default=DEFAULT_TOGGLE_KEY,
-		help=(
-			f"Toggle key to listen for (default: {DEFAULT_TOGGLE_KEY}, "
-			"env WHISPERING_TOGGLE_KEY; pass 'none' to disable)"
-		),
+		"--config",
+		default=str(DEFAULT_CONFIG),
+		help=f"Config file path (default: {DEFAULT_CONFIG})",
 	)
 	parser.add_argument(
 		"--debug",
@@ -241,44 +281,43 @@ def main() -> None:
 	)
 	cli_args = parser.parse_args()
 
-	ptt_key = None if cli_args.key.lower() == "none" else parse_ptt_key(cli_args.key)
-	toggle_key = (
-		None
-		if cli_args.toggle_key.lower() == "none"
-		else parse_ptt_key(cli_args.toggle_key)
-	)
+	config = load_config(Path(cli_args.config).expanduser())
+
+	ptt_key = parse_key(config.ptt_key) if config.ptt_key else None
+	toggle_key = parse_key(config.toggle_key) if config.toggle_key else None
 
 	if ptt_key is None and toggle_key is None:
-		raise SystemExit("At least one of --key or --toggle-key must be set.")
+		raise SystemExit(
+			f"Config {cli_args.config} must set at least one of ptt_key or toggle_key.",
+		)
 
-	ptt_key_name = cli_args.key
-	toggle_key_name = cli_args.toggle_key
-
-	probe = open_device(cli_args.device, grab=False)
+	probe = open_device(config, grab=False)
+	print(f"Config: {cli_args.config}")
 	print(f"Listening on {probe.path} ({probe.name})")
 	if ptt_key is not None:
-		print(f"PTT key {ptt_key_name} = evdev code {ptt_key}")
-	if toggle_key is not None:
-		print(f"Toggle key {toggle_key_name} = evdev code {toggle_key}")
-	if ptt_key is not None:
+		print(f"PTT key {config.ptt_key} = evdev code {ptt_key}")
 		print(
-			f"{ptt_key_name} press → start, {ptt_key_name} release → stop "
-			f"via {cli_args.whispering}",
+			f"{config.ptt_key} press → start, {config.ptt_key} release → stop "
+			f"via {config.whispering}",
 		)
+	else:
+		print("PTT key: disabled (ptt_key not set)")
 	if toggle_key is not None:
-		print(f"{toggle_key_name} press → toggle via {cli_args.whispering}")
+		print(f"Toggle key {config.toggle_key} = evdev code {toggle_key}")
+		print(f"{config.toggle_key} press → toggle via {config.whispering}")
+	else:
+		print("Toggle key: disabled (toggle_key not set)")
 	print("Whispering must already be running.")
 	print("Quit evtest before running this script.")
 	print("Press Ctrl+C to stop.\n", flush=True)
 	release_device(probe, grab=False)
 
 	listen_loop(
-		cli_args.device,
+		config,
 		ptt_key,
-		ptt_key_name,
+		config.ptt_key,
 		toggle_key,
-		toggle_key_name,
-		cli_args.whispering,
+		config.toggle_key,
 		cli_args.debug,
 		cli_args.grab,
 	)
