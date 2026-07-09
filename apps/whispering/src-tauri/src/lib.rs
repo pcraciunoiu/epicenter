@@ -32,9 +32,6 @@ use external_commands::{
     parse_external_recording_command, take_pending_external_recording_command,
 };
 
-pub mod shortcut_env;
-use shortcut_env::get_shortcut_env_overrides;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
@@ -166,7 +163,6 @@ pub async fn run() {
 
     // Register command handlers (same for all platforms now)
     let builder = builder.invoke_handler(tauri::generate_handler![
-        get_shortcut_env_overrides,
         take_pending_external_recording_command,
         write_text,
         simulate_enter_keystroke,

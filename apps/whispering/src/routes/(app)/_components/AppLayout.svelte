@@ -20,7 +20,6 @@
 	} from '../_layout-utils/check-ffmpeg';
 	import { checkForUpdates } from '../_layout-utils/check-for-updates';
 	import { checkIndexedDBMigration } from '../_layout-utils/check-indexeddb-migration';
-	import { applyLinuxShortcutEnvOverrides } from '../_layout-utils/apply-linux-shortcut-env';
 	import {
 		resetGlobalShortcutsToDefaultIfDuplicates,
 		resetLocalShortcutsToDefaultIfDuplicates,
@@ -55,7 +54,6 @@
 
 		if (window.__TAURI_INTERNALS__) {
 			cleanupExternalCommands = await registerExternalCommands();
-			await applyLinuxShortcutEnvOverrides();
 			syncGlobalShortcutsWithSettings();
 			resetGlobalShortcutsToDefaultIfDuplicates();
 

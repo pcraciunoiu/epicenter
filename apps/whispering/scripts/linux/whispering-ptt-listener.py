@@ -44,7 +44,7 @@ MOONLANDER_SPECIALIZED_SUFFIXES = (
 def find_moonlander_ptt_device() -> evdev.InputDevice:
 	"""Find the Moonlander evdev node that receives PTT keys.
 
-	On many setups (including GNOME Wayland), F13/F14 arrive on the generic
+	On many setups (including GNOME Wayland), F14/F15 arrive on the generic
 	'ZSA Technology Labs Moonlander Mark I' node (often event4), not the
 	separate 'Keyboard' interface (often event8). Use evtest on each node to
 	confirm which one sees your PTT key.

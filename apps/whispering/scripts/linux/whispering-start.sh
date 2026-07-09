@@ -13,8 +13,8 @@
 
 set -euo pipefail
 
-export WHISPERING_PTT_KEY="${WHISPERING_PTT_KEY:-F14}"
-export WHISPERING_TOGGLE_KEY="${WHISPERING_TOGGLE_KEY:-F15}"
+WHISPERING_PTT_KEY="${WHISPERING_PTT_KEY:-F14}"
+WHISPERING_TOGGLE_KEY="${WHISPERING_TOGGLE_KEY:-F15}"
 WHISPERING_BIN="${WHISPERING_BIN:-/usr/bin/whispering}"
 WHISPERING_LISTENER="${WHISPERING_LISTENER:-$HOME/.local/bin/whispering-ptt-listener.py}"
 WHISPERING_START_LISTENER="${WHISPERING_START_LISTENER:-1}"
@@ -24,13 +24,11 @@ if [[ ! -x "$WHISPERING_BIN" ]]; then
 	exit 1
 fi
 
-# Export so the desktop app picks up the same shortcut defaults on launch.
-export WHISPERING_PTT_KEY WHISPERING_TOGGLE_KEY
-
 "$WHISPERING_BIN" "$@" &
 app_pid=$!
 
 if [[ "$WHISPERING_START_LISTENER" == "1" && -x "$WHISPERING_LISTENER" ]]; then
+	# Env vars / flags configure the evdev listener only (not the Whispering app).
 	"$WHISPERING_LISTENER" \
 		--whispering "$WHISPERING_BIN" \
 		--key "$WHISPERING_PTT_KEY" \

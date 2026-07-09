@@ -163,7 +163,7 @@ chmod +x ~/.local/bin/whispering-start.sh
 WHISPERING_PTT_KEY=F14 WHISPERING_TOGGLE_KEY=F15 ~/.local/bin/whispering-start.sh
 ```
 
-The same env vars are read by the desktop app on startup when set in the process environment.
+These env vars configure the evdev listener only; they do not change in-app global shortcut settings.
 
 ### Toggle recording (recommended)
 
@@ -183,9 +183,9 @@ Dev builds use a different binary path, typically under `src-tauri/target/debug/
 
 ### Hacky push-to-talk via start/stop (optional)
 
-The portal and hold-to-talk backend are not ready yet. You can approximate PTT with a Moonlander key mapped to **F13** in Oryx plus a small evdev listener.
+The portal and hold-to-talk backend are not ready yet. You can approximate PTT with a Moonlander key mapped to **F14** (and toggle to **F15**) in Oryx plus a small evdev listener.
 
-1. Map a key to **F13** or **F14** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F13`/`KEY_F14`, value 1/0).
+1. Map hold-to-talk to **F14** and tap-to-toggle to **F15** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F14`/`KEY_F15`, value 1/0).
 2. Install deps: `sudo apt install python3-evdev evtest`
 3. Copy `scripts/linux/whispering-ptt-listener.py` to `~/.local/bin/` and chmod +x.
 4. **Find the correct evdev node** — on many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface (`event8`). Run `evtest` on each Moonlander node until you see your key; the listener auto-detects the generic node by default:
@@ -196,16 +196,7 @@ The portal and hold-to-talk backend are not ready yet. You can approximate PTT w
 ~/.local/bin/whispering-ptt-listener.py --device /dev/input/event4
 ```
 
-5. **Swallow F13 from GNOME** (otherwise the key may still reach the desktop and trigger unrelated actions). Install [keyd](https://github.com/rvaiya/keyd):
-
-```bash
-sudo apt install keyd
-sudo cp scripts/linux/keyd-whispering-ptt.conf /etc/keyd/whispering-ptt.conf
-sudo systemctl enable keyd --now
-sudo keyd reload
-```
-
-6. Autostart the listener with a user systemd unit (see `scripts/linux/whispering-ptt.service.example`).
+5. Autostart the listener with a user systemd unit (see `scripts/linux/whispering-ptt.service.example`).
 
 CLI flags (Whispering must be running):
 

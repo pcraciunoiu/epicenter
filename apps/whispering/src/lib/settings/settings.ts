@@ -37,7 +37,6 @@ import {
 } from '$lib/constants/audio';
 import { CommandOrAlt, CommandOrControl } from '$lib/constants/keyboard';
 import { SUPPORTED_LANGUAGES } from '$lib/constants/languages';
-import { IS_LINUX } from '$lib/constants/platform/is-linux';
 import { ALWAYS_ON_TOP_MODES, LAYOUT_MODES } from '$lib/constants/ui';
 import {
 	FFMPEG_DEFAULT_COMPRESSION_OPTIONS,
@@ -244,7 +243,7 @@ export const Settings = type({
 
 	// Global shortcuts (system-wide shortcuts)
 	'shortcuts.global.toggleManualRecording': type('string | null').default(
-		IS_LINUX ? 'F15' : `${CommandOrControl}+Shift+;`,
+		`${CommandOrControl}+Shift+;`,
 	),
 	'shortcuts.global.startManualRecording': 'string | null = null',
 	'shortcuts.global.stopManualRecording': 'string | null = null',
@@ -255,7 +254,7 @@ export const Settings = type({
 	'shortcuts.global.startVadRecording': 'string | null = null',
 	'shortcuts.global.stopVadRecording': 'string | null = null',
 	'shortcuts.global.pushToTalk': type('string | null').default(
-		IS_LINUX ? 'F14' : `${CommandOrAlt}+Shift+D`,
+		`${CommandOrAlt}+Shift+D`,
 	),
 	'shortcuts.global.openTransformationPicker': type('string | null').default(
 		`${CommandOrControl}+Shift+X`,
