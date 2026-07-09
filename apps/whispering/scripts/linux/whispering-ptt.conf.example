@@ -3,6 +3,8 @@
 #
 # Omit ptt_key or toggle_key to disable that binding.
 # Prefer device_name over device= — /dev/input/eventN can change after replug.
+# Moonlander exposes several event nodes; PTT keys usually arrive on the generic
+# "ZSA Technology Labs Moonlander Mark I" node (not the Keyboard interface).
 
 [ptt]
 device_name = ZSA Technology Labs Moonlander Mark I

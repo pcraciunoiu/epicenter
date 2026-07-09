@@ -147,6 +147,14 @@ Whispering must already be running (start it normally or enable autostart). A se
 
 ### PTT listener setup
 
+The listener reads keyboard events via evdev. Your user must be in the `input` group (log out and back in afterward, or reboot):
+
+```bash
+sudo usermod -aG input "$USER"
+```
+
+Until the new group is active, evdev may list zero devices and the listener will appear broken. The example systemd unit uses `sg input` so the service can start before you log out/in.
+
 Configure keys and device in `~/.config/whispering/ptt.conf` (see `scripts/linux/whispering-ptt.conf.example`). Omit `ptt_key` or `toggle_key` to disable that binding. Run the listener via systemd (recommended) or directly.
 
 ```bash
@@ -160,7 +168,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now whispering-ptt.service
 ```
 
-Start Whispering normally (desktop entry or `/usr/bin/whispering`). The listener talks to the running instance via CLI.
+Start Whispering normally (desktop entry or `/usr/bin/whispering`). The listener talks to the running instance via CLI. If the configured device is not plugged in yet, the listener waits and retries instead of exiting (useful when autostarting via systemd).
 
 ### Toggle recording (recommended)
 
@@ -182,10 +190,24 @@ Dev builds use a different binary path, typically under `src-tauri/target/debug/
 
 The portal and hold-to-talk backend are not ready yet. You can approximate PTT with a Moonlander key mapped to **F14** in Oryx plus a small evdev listener.
 
-1. Map hold-to-talk to **F14** in [Oryx](https://www.zsa.io/oryx), flash, verify with `evtest` (`KEY_F14`, value 1/0). Optionally map toggle to **F15** and set `toggle_key` in the config.
+1. Map hold-to-talk to **F14** in [Oryx](https://www.zsa.io/oryx), flash, then verify on the Moonlander input node (see below). Optionally map toggle to **F15** and set `toggle_key` in the config.
 2. Install deps: `sudo apt install python3-evdev evtest`
 3. Copy `scripts/linux/whispering-ptt-listener.py` to `~/.local/bin/` and chmod +x.
-4. Create `~/.config/whispering/ptt.conf` from `scripts/linux/whispering-ptt.conf.example`. Prefer `device_name`; use `device=/dev/input/eventN` only if needed. On many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node (often `/dev/input/event4`), not the separate `Keyboard` interface.
+4. Create `~/.config/whispering/ptt.conf` from `scripts/linux/whispering-ptt.conf.example`. Prefer `device_name`; use `device=/dev/input/eventN` only if needed. A Moonlander exposes several `/dev/input/event*` nodes (generic, Keyboard, System Control, etc.). On many GNOME Wayland setups PTT keys arrive on the generic `ZSA Technology Labs Moonlander Mark I` node, not the separate `Keyboard` interface.
+
+   List devices:
+
+   ```bash
+   grep -E '^(N:|H:)' /proc/bus/input/devices
+   ```
+
+   Verify your PTT key (e.g. `KEY_F14`, value 1 on press and 0 on release):
+
+   ```bash
+   evtest /dev/input/eventN
+   ```
+
+   If F14 does not appear on that node, try the other Moonlander event paths.
 5. Run the listener:
 
 ```bash
