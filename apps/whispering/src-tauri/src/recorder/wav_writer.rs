@@ -25,8 +25,8 @@ impl WavWriter {
         let file = File::create(&file_path)?;
         let mut writer = BufWriter::new(file);
 
-        // We'll use 32-bit float format for consistency with the current implementation
-        let bits_per_sample = 32;
+        // 16-bit PCM is universally supported by HTML5 audio elements.
+        let bits_per_sample = 16;
         let bytes_per_sample = bits_per_sample / 8;
 
         // Write initial WAV header with placeholder sizes
@@ -41,7 +41,7 @@ impl WavWriter {
         // fmt chunk
         writer.write_all(b"fmt ")?;
         writer.write_all(&16u32.to_le_bytes())?; // Subchunk1Size (16 for PCM)
-        writer.write_all(&3u16.to_le_bytes())?; // AudioFormat (3 for IEEE Float)
+        writer.write_all(&1u16.to_le_bytes())?; // AudioFormat (1 for PCM)
         writer.write_all(&channels.to_le_bytes())?;
         writer.write_all(&sample_rate.to_le_bytes())?;
         let byte_rate = sample_rate * channels as u32 * bytes_per_sample as u32;
@@ -58,7 +58,7 @@ impl WavWriter {
         writer.flush()?;
 
         info!(
-            "Created WAV file at {:?}: {}Hz, {} channels, {}-bit float",
+            "Created WAV file at {:?}: {}Hz, {} channels, {}-bit PCM",
             file_path, sample_rate, channels, bits_per_sample
         );
 
@@ -76,11 +76,16 @@ impl WavWriter {
         })
     }
 
-    /// Write f32 samples to the WAV file
+    /// Write f32 samples to the WAV file (converting to i16)
     pub fn write_samples_f32(&mut self, samples: &[f32]) -> io::Result<()> {
-        // Write samples as little-endian f32
-        for sample in samples {
-            self.writer.write_all(&sample.to_le_bytes())?;
+        for &sample in samples {
+            let clamped = sample.clamp(-1.0, 1.0);
+            let i16_sample = if clamped < 0.0 {
+                (clamped * i16::MIN as f32) as i16
+            } else {
+                (clamped * i16::MAX as f32) as i16
+            };
+            self.writer.write_all(&i16_sample.to_le_bytes())?;
         }
 
         self.samples_written += samples.len() as u64;
@@ -94,12 +99,10 @@ impl WavWriter {
         Ok(())
     }
 
-    /// Write i16 samples to the WAV file (converting to f32)
+    /// Write i16 samples to the WAV file
     pub fn write_samples_i16(&mut self, samples: &[i16]) -> io::Result<()> {
-        // Convert i16 to f32 and write
         for &sample in samples {
-            let f32_sample = sample as f32 / i16::MAX as f32;
-            self.writer.write_all(&f32_sample.to_le_bytes())?;
+            self.writer.write_all(&sample.to_le_bytes())?;
         }
 
         self.samples_written += samples.len() as u64;
@@ -113,12 +116,17 @@ impl WavWriter {
         Ok(())
     }
 
-    /// Write u16 samples to the WAV file (converting to f32)
+    /// Write u16 samples to the WAV file (converting to i16)
     pub fn write_samples_u16(&mut self, samples: &[u16]) -> io::Result<()> {
-        // Convert u16 to f32 and write
         for &sample in samples {
-            let f32_sample = (sample as f32 / u16::MAX as f32) * 2.0 - 1.0;
-            self.writer.write_all(&f32_sample.to_le_bytes())?;
+            let normalized = (sample as f32 / u16::MAX as f32) * 2.0 - 1.0;
+            let clamped = normalized.clamp(-1.0, 1.0);
+            let i16_sample = if clamped < 0.0 {
+                (clamped * i16::MIN as f32) as i16
+            } else {
+                (clamped * i16::MAX as f32) as i16
+            };
+            self.writer.write_all(&i16_sample.to_le_bytes())?;
         }
 
         self.samples_written += samples.len() as u64;

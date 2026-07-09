@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LazyAudio from '$lib/components/LazyAudio.svelte';
 	import { rpc } from '$lib/query';
 	import { services } from '$lib/services';
 	import { viewTransition } from '$lib/utils/viewTransitions';
@@ -18,12 +19,9 @@
 </script>
 
 {#if audioUrlQuery.data}
-	<audio
+	<LazyAudio
 		class="h-8"
 		style="view-transition-name: {viewTransition.recording(id).audio}"
-		controls
 		src={audioUrlQuery.data}
-	>
-		Your browser does not support the audio element.
-	</audio>
+	/>
 {/if}
