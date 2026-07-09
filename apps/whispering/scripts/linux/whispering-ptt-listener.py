@@ -22,6 +22,19 @@ DEFAULT_WHISPERING = "/usr/bin/whispering"
 DEFAULT_CONFIG = Path.home() / ".config" / "whispering" / "ptt.conf"
 DEFAULT_DEVICE_NAME = "ZSA Technology Labs Moonlander Mark I"
 RECONNECT_DELAY_S = 1.0
+DEVICE_WAIT_S = 5.0
+
+LIST_DEVICES_HINT = (
+	"List input devices:\n"
+	"  grep -E '^(N:|H:)' /proc/bus/input/devices\n"
+	"Or (after joining the input group):\n"
+	'  python3 -c "import evdev; '
+	'[print(p, evdev.InputDevice(p).name) for p in evdev.list_devices()]"'
+)
+
+
+class DeviceNotFoundError(Exception):
+	pass
 
 MOONLANDER_SPECIALIZED_SUFFIXES = (
 	"System Control",
@@ -91,9 +104,9 @@ def find_device_by_name(device_name: str) -> evdev.InputDevice:
 			matches.append(device)
 
 	if not matches:
-		raise SystemExit(
+		raise DeviceNotFoundError(
 			f"No input device named {device_name!r}.\n"
-			"Run: evtest --list\n"
+			f"{LIST_DEVICES_HINT}\n"
 			"Then set device= or device_name= in ~/.config/whispering/ptt.conf",
 		)
 
@@ -112,8 +125,9 @@ def find_moonlander_ptt_device() -> evdev.InputDevice:
 		candidates.append(device)
 
 	if not candidates:
-		raise SystemExit(
-			"Moonlander not found. Plug it in and run: evtest --list or evtest\n"
+		raise DeviceNotFoundError(
+			"Moonlander not found. Plug it in, then list devices:\n"
+			f"{LIST_DEVICES_HINT}\n"
 			"Or set device= / device_name= in ~/.config/whispering/ptt.conf",
 		)
 
@@ -131,10 +145,11 @@ def find_moonlander_ptt_device() -> evdev.InputDevice:
 			return device
 
 	names = "\n".join(f"  {d.path}: {d.name}" for d in candidates)
-	raise SystemExit(
+	raise DeviceNotFoundError(
 		"Moonlander PTT device not found. Candidates:\n"
 		f"{names}\n"
-		"Set device= to the path that shows your PTT key in evtest.",
+		"Set device= to the path that shows your PTT key in evtest "
+		"(e.g. evtest /dev/input/eventN).",
 	)
 
 
@@ -147,7 +162,15 @@ def resolve_device(config: ListenerConfig) -> evdev.InputDevice:
 
 
 def open_device(config: ListenerConfig, grab: bool) -> evdev.InputDevice:
-	device = resolve_device(config)
+	try:
+		device = resolve_device(config)
+	except DeviceNotFoundError:
+		raise
+	except OSError as error:
+		raise DeviceNotFoundError(
+			f"Could not open input device: {error}\n"
+			f"{LIST_DEVICES_HINT}",
+		) from error
 
 	if grab:
 		try:
@@ -159,6 +182,15 @@ def open_device(config: ListenerConfig, grab: bool) -> evdev.InputDevice:
 			)
 
 	return device
+
+
+def open_device_with_retry(config: ListenerConfig, grab: bool) -> evdev.InputDevice:
+	while True:
+		try:
+			return open_device(config, grab)
+		except DeviceNotFoundError as error:
+			print(f"{error}\nRetrying in {DEVICE_WAIT_S:.0f}s…", flush=True)
+			time.sleep(DEVICE_WAIT_S)
 
 
 def release_device(device: evdev.InputDevice, grab: bool) -> None:
@@ -228,7 +260,7 @@ def listen_loop(
 	debug: bool,
 	grab: bool,
 ) -> None:
-	device = open_device(config, grab)
+	device = open_device_with_retry(config, grab)
 
 	while True:
 		try:
@@ -252,7 +284,7 @@ def listen_loop(
 			)
 			release_device(device, grab)
 			time.sleep(RECONNECT_DELAY_S)
-			device = open_device(config, grab)
+			device = open_device_with_retry(config, grab)
 			print(
 				f"Reconnected to {device.path} ({device.name})",
 				flush=True,
@@ -291,7 +323,7 @@ def main() -> None:
 			f"Config {cli_args.config} must set at least one of ptt_key or toggle_key.",
 		)
 
-	probe = open_device(config, grab=False)
+	probe = open_device_with_retry(config, grab=False)
 	print(f"Config: {cli_args.config}")
 	print(f"Listening on {probe.path} ({probe.name})")
 	if ptt_key is not None:
