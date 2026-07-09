@@ -244,7 +244,7 @@ export const Settings = type({
 
 	// Global shortcuts (system-wide shortcuts)
 	'shortcuts.global.toggleManualRecording': type('string | null').default(
-		IS_LINUX ? 'F13' : `${CommandOrControl}+Shift+;`,
+		IS_LINUX ? 'F15' : `${CommandOrControl}+Shift+;`,
 	),
 	'shortcuts.global.startManualRecording': 'string | null = null',
 	'shortcuts.global.stopManualRecording': 'string | null = null',

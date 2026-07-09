@@ -3,7 +3,7 @@
 #
 # Defaults (override with env):
 #   WHISPERING_PTT_KEY=F14       hold-to-talk via evdev listener
-#   WHISPERING_TOGGLE_KEY=F13    tap-to-toggle via evdev listener
+#   WHISPERING_TOGGLE_KEY=F15    tap-to-toggle via evdev listener
 #   WHISPERING_BIN=/usr/bin/whispering
 #   WHISPERING_LISTENER=~/.local/bin/whispering-ptt-listener.py
 #   WHISPERING_START_LISTENER=1  set to 0 to skip the listener
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 export WHISPERING_PTT_KEY="${WHISPERING_PTT_KEY:-F14}"
-export WHISPERING_TOGGLE_KEY="${WHISPERING_TOGGLE_KEY:-F13}"
+export WHISPERING_TOGGLE_KEY="${WHISPERING_TOGGLE_KEY:-F15}"
 WHISPERING_BIN="${WHISPERING_BIN:-/usr/bin/whispering}"
 WHISPERING_LISTENER="${WHISPERING_LISTENER:-$HOME/.local/bin/whispering-ptt-listener.py}"
 WHISPERING_START_LISTENER="${WHISPERING_START_LISTENER:-1}"

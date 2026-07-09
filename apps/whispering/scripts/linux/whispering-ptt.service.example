@@ -1,10 +1,10 @@
 [Unit]
-Description=Whispering Linux shortcut listener (PTT F14, toggle F13)
+Description=Whispering Linux shortcut listener (PTT F14, toggle F15)
 After=graphical-session.target
 
 [Service]
 Environment=WHISPERING_PTT_KEY=F14
-Environment=WHISPERING_TOGGLE_KEY=F13
+Environment=WHISPERING_TOGGLE_KEY=F15
 # Auto-detects the Moonlander PTT node (generic interface, often event4).
 # Override with --device /dev/input/eventN if needed.
 # Do not use --grab — it blocks all Moonlander typing.

@@ -15,7 +15,7 @@ from evdev import ecodes
 
 DEFAULT_WHISPERING = "/usr/bin/whispering"
 DEFAULT_PTT_KEY = os.environ.get("WHISPERING_PTT_KEY", "F14")
-DEFAULT_TOGGLE_KEY = os.environ.get("WHISPERING_TOGGLE_KEY", "F13")
+DEFAULT_TOGGLE_KEY = os.environ.get("WHISPERING_TOGGLE_KEY", "F15")
 RECONNECT_DELAY_S = 1.0
 
 
