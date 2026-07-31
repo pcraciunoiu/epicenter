@@ -120,6 +120,12 @@ export const Settings = type({
 	// Recording mode settings
 	'recording.mode': type.enumerated(...RECORDING_MODES).default('manual'),
 	/**
+	 * When enabled, Manual toggle-recording uses VAD to commit phrases after each
+	 * pause (dictation segments). Push-to-talk always uses the normal Manual recorder.
+	 * Mid-session flips apply on the next toggle session.
+	 */
+	'recording.manual.segmentsEnabled': 'boolean = false',
+	/**
 	 * Recording method to use for manual recording in desktop app.
 	 * - 'cpal': Uses Rust audio recording method (CPAL)
 	 * - 'navigator': Uses MediaRecorder API (web standard)

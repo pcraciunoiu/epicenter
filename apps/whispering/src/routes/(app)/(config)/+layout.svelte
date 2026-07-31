@@ -5,6 +5,7 @@
 	import {
 		RecordingModeSelector,
 		CompressionSelector,
+		DictationSegmentsToggle,
 		TranscriptionSelector,
 		TransformationSelector,
 	} from '$lib/components/settings';
@@ -45,9 +46,14 @@
 	<div class="flex items-center gap-1.5">
 		<div class="flex items-center gap-1.5">
 			{#if settings.value['recording.mode'] === 'manual'}
-				{#if getRecorderStateQuery.data === 'RECORDING'}
+				{@const isManualSegmentsSession =
+					vadRecorder.state === 'LISTENING' ||
+					vadRecorder.state === 'SPEECH_DETECTED'}
+				{#if getRecorderStateQuery.data === 'RECORDING' || isManualSegmentsSession}
 					<Button
-						tooltip="Cancel recording"
+						tooltip={isManualSegmentsSession
+							? 'Cancel dictation segments'
+							: 'Cancel recording'}
 						onclick={() => commandCallbacks.cancelManualRecording()}
 						variant="ghost"
 						size="icon"
@@ -56,20 +62,25 @@
 						🚫
 					</Button>
 				{:else}
+					<DictationSegmentsToggle />
 					<ManualDeviceSelector />
 					<CompressionSelector />
 					<TranscriptionSelector />
 					<TransformationSelector />
 				{/if}
-				{#if getRecorderStateQuery.data === 'RECORDING'}
+				{#if getRecorderStateQuery.data === 'RECORDING' || isManualSegmentsSession}
 					<Button
-						tooltip="Stop recording"
+						tooltip={isManualSegmentsSession
+							? 'Stop dictation segments'
+							: 'Stop recording'}
 						onclick={() => commandCallbacks.toggleManualRecording()}
 						variant="ghost"
 						size="icon"
 						style="view-transition-name: {viewTransition.global.microphone}"
 					>
-						{RECORDER_STATE_TO_ICON[getRecorderStateQuery.data ?? 'IDLE']}
+						{isManualSegmentsSession
+							? VAD_STATE_TO_ICON[vadRecorder.state]
+							: RECORDER_STATE_TO_ICON[getRecorderStateQuery.data ?? 'IDLE']}
 					</Button>
 				{:else}
 					<div class="flex">

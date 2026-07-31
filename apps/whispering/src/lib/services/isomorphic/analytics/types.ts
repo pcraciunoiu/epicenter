@@ -31,6 +31,11 @@ export type Event =
 	// Recording completion events - always include blob_size, duration when available
 	| { type: 'manual_recording_completed'; blob_size: number; duration?: number }
 	| { type: 'vad_recording_completed'; blob_size: number; duration?: number }
+	| {
+			type: 'manual_segments_phrase_completed';
+			blob_size: number;
+			duration?: number;
+	  }
 	| { type: 'file_uploaded'; blob_size: number }
 	// Transcription events
 	| { type: 'transcription_requested'; provider: TranscriptionServiceId }

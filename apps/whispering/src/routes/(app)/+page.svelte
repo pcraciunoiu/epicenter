@@ -4,6 +4,7 @@
 	import TranscriptDialog from '$lib/components/copyable/TranscriptDialog.svelte';
 	import {
 		CompressionSelector,
+		DictationSegmentsToggle,
 		TranscriptionSelector,
 		TransformationSelector,
 	} from '$lib/components/settings';
@@ -201,12 +202,17 @@
 	</ToggleGroup.Root>
 
 	{#if settings.value['recording.mode'] === 'manual'}
+		{@const isManualSegmentsSession =
+			vadRecorder.state === 'LISTENING' ||
+			vadRecorder.state === 'SPEECH_DETECTED'}
 		<!-- Container with relative positioning for the button and absolute selectors -->
 		<div class="relative">
 			<Button
-				tooltip={getRecorderStateQuery.data === 'IDLE'
-					? 'Start recording'
-					: 'Stop recording'}
+				tooltip={isManualSegmentsSession
+					? 'Stop dictation segments'
+					: getRecorderStateQuery.data === 'IDLE'
+						? 'Start recording'
+						: 'Stop recording'}
 				onclick={() => commandCallbacks.toggleManualRecording()}
 				variant="ghost"
 				class="shrink-0 size-32 sm:size-36 lg:size-40 xl:size-44 transform items-center justify-center overflow-hidden duration-300 ease-in-out"
@@ -216,13 +222,17 @@
 						.global.microphone};"
 					class="text-[100px] sm:text-[110px] lg:text-[120px] xl:text-[130px] leading-none"
 				>
-					{RECORDER_STATE_TO_ICON[getRecorderStateQuery.data ?? 'IDLE']}
+					{isManualSegmentsSession
+						? VAD_STATE_TO_ICON[vadRecorder.state]
+						: RECORDER_STATE_TO_ICON[getRecorderStateQuery.data ?? 'IDLE']}
 				</span>
 			</Button>
-			{#if getRecorderStateQuery.data === 'RECORDING'}
+			{#if getRecorderStateQuery.data === 'RECORDING' || isManualSegmentsSession}
 				<div class="absolute -right-12 bottom-4 flex items-center">
 					<Button
-						tooltip="Cancel recording"
+						tooltip={isManualSegmentsSession
+							? 'Cancel dictation segments'
+							: 'Cancel recording'}
 						onclick={() => commandCallbacks.cancelManualRecording()}
 						variant="ghost"
 						size="icon"
@@ -232,7 +242,8 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="absolute -right-32 bottom-4 flex items-center gap-0.5">
+				<div class="absolute -right-40 bottom-4 flex items-center gap-0.5">
+					<DictationSegmentsToggle />
 					<ManualDeviceSelector />
 					<CompressionSelector />
 					<TranscriptionSelector />
