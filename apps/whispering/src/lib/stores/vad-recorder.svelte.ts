@@ -111,6 +111,13 @@ function createVadRecorder() {
 					MicVAD.new({
 						stream,
 						submitUserSpeechOnPause: true,
+						model: 'v5',
+						// Defaults (v5): positive 0.5, preSpeechPad 3 (~0.3s). Quieter
+						// WebView mics need a lower threshold; clipped phrase starts
+						// need more pre-roll (12 frames ≈ 1.15s at 1536/16kHz).
+						positiveSpeechThreshold: 0.4,
+						negativeSpeechThreshold: 0.25,
+						preSpeechPadFrames: 12,
 						onSpeechStart: () => {
 							_state = 'SPEECH_DETECTED';
 							onSpeechStart();
@@ -128,7 +135,6 @@ function createVadRecorder() {
 						onSpeechRealStart: () => {
 							onSpeechRealStart?.();
 						},
-						model: 'v5',
 					}),
 				catch: (error) =>
 					WhisperingErr({
