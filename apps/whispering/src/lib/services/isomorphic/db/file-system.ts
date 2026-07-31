@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import {
 	exists,
@@ -19,6 +19,9 @@ import type { Recording } from './models';
 import { Transformation, TransformationRun } from './models';
 import type { DbService } from './types';
 import { DbServiceErr } from './types';
+import { ensurePlayableWavBlob } from './wav-playback';
+
+const audioUrlCache = new Map<string, string>();
 
 /**
  * Schema validator for Recording front matter (everything except transcribedText)
@@ -382,21 +385,17 @@ export function createFileSystemDb(): DbService {
 			async ensureAudioPlaybackUrl(recordingId: string) {
 				return tryAsync({
 					try: async () => {
-						const recordingsPath = await PATHS.DB.RECORDINGS();
-						const audioFile = await findAudioFile(recordingsPath, recordingId);
+						const cachedUrl = audioUrlCache.get(recordingId);
+						if (cachedUrl) return cachedUrl;
 
-						if (!audioFile) {
-							throw new Error(
-								`Audio file not found for recording ${recordingId}`,
-							);
-						}
+						const { data: blob, error } = await this.getAudioBlob(recordingId);
+						if (error) throw error;
 
-						const audioPath = await join(recordingsPath, audioFile);
-						const assetUrl = convertFileSrc(audioPath);
+						const playableBlob = await ensurePlayableWavBlob(blob);
+						const objectUrl = URL.createObjectURL(playableBlob);
+						audioUrlCache.set(recordingId, objectUrl);
 
-						// Return the URL as-is from convertFileSrc()
-						// The Tauri backend handles URL decoding automatically
-						return assetUrl;
+						return objectUrl;
 					},
 					catch: (error) =>
 						DbServiceErr({
@@ -405,8 +404,12 @@ export function createFileSystemDb(): DbService {
 				});
 			},
 
-			revokeAudioUrl(_recordingId: string) {
-				// No-op on desktop, URLs are asset:// protocol managed by Tauri
+			revokeAudioUrl(recordingId: string) {
+				const url = audioUrlCache.get(recordingId);
+				if (url) {
+					URL.revokeObjectURL(url);
+					audioUrlCache.delete(recordingId);
+				}
 			},
 
 			async clear() {

@@ -1,0 +1,16 @@
+# Whispering Linux PTT listener config.
+# Copy to: ~/.config/whispering/ptt.conf
+#
+# Omit ptt_key or toggle_key to disable that binding.
+# Prefer device_name over device= — /dev/input/eventN can change after replug.
+# Moonlander exposes several event nodes; PTT keys usually arrive on the generic
+# "ZSA Technology Labs Moonlander Mark I" node (not the Keyboard interface).
+
+[ptt]
+device_name = ZSA Technology Labs Moonlander Mark I
+# device = /dev/input/event4
+
+ptt_key = F14
+# toggle_key = F15
+
+# whispering = /usr/bin/whispering

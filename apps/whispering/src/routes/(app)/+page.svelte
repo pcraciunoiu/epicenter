@@ -20,6 +20,7 @@
 	import { desktopServices, services } from '$lib/services';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { viewTransition } from '$lib/utils/viewTransitions';
+	import LazyAudio from '$lib/components/LazyAudio.svelte';
 	import { Button } from '@epicenter/ui/button';
 	import {
 		ACCEPT_AUDIO,
@@ -307,14 +308,13 @@
 			/>
 
 			{#if blobUrl}
-				<audio
+				<LazyAudio
 					style="view-transition-name: {viewTransition.recording(
 						latestRecording.id,
 					).audio}"
 					src={blobUrl}
-					controls
 					class="h-8 w-full"
-				></audio>
+				/>
 			{/if}
 		</div>
 	{/if}

@@ -1,0 +1,20 @@
+[Unit]
+Description=Whispering Linux shortcut listener
+After=graphical-session.target
+
+[Service]
+# Configure keys/device in ~/.config/whispering/ptt.conf
+# (see scripts/linux/whispering-ptt.conf.example).
+# Do not use --grab — it blocks all Moonlander typing.
+#
+# evdev requires membership in the input group:
+#   sudo usermod -aG input "$USER"
+# Log out and back in, then you can drop the sg wrapper below and use a
+# plain ExecStart=... line instead. Until then, sg avoids exit 216/GROUP
+# from SupplementaryGroups= in user units.
+ExecStart=/usr/bin/sg input -c "%h/.local/bin/whispering-ptt-listener.py --config %h/.config/whispering/ptt.conf"
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

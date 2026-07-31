@@ -26,6 +26,7 @@
 		syncGlobalShortcutsWithSettings,
 		syncLocalShortcutsWithSettings,
 	} from '../_layout-utils/register-commands';
+	import { registerExternalCommands } from '../_layout-utils/register-external-commands';
 	import {
 		registerAccessibilityPermission,
 		registerMicrophonePermission,
@@ -39,8 +40,9 @@
 
 	let cleanupAccessibilityPermission: (() => void) | undefined;
 	let cleanupMicrophonePermission: (() => void) | undefined;
+	let cleanupExternalCommands: (() => void) | undefined;
 
-	onMount(() => {
+	onMount(async () => {
 		// Sync operations - run immediately, these are fast
 		window.commands = commandCallbacks;
 		window.goto = goto;
@@ -51,6 +53,7 @@
 		cleanupMicrophonePermission = registerMicrophonePermission();
 
 		if (window.__TAURI_INTERNALS__) {
+			cleanupExternalCommands = await registerExternalCommands();
 			syncGlobalShortcutsWithSettings();
 			resetGlobalShortcutsToDefaultIfDuplicates();
 
@@ -71,6 +74,7 @@
 	onDestroy(() => {
 		cleanupAccessibilityPermission?.();
 		cleanupMicrophonePermission?.();
+		cleanupExternalCommands?.();
 	});
 
 	if (window.__TAURI_INTERNALS__) {

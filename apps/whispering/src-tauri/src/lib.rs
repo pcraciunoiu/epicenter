@@ -26,6 +26,15 @@ use command::{execute_command, spawn_command};
 pub mod markdown_reader;
 use markdown_reader::{bulk_delete_files, count_markdown_files, read_markdown_files};
 
+pub mod external_commands;
+use external_commands::{
+    emit_external_recording_command, init_pending_external_recording_command,
+    parse_external_recording_command, take_pending_external_recording_command,
+};
+
+#[cfg(target_os = "linux")]
+mod linux_webkit;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
@@ -104,7 +113,27 @@ pub async fn run() {
         }))
         .build();
 
-    let mut builder = tauri::Builder::default().plugin(log_plugin);
+    let mut builder = tauri::Builder::default()
+        .plugin(log_plugin)
+        .setup(|app| {
+            let args: Vec<String> = std::env::args().collect();
+            app.manage(init_pending_external_recording_command(&args));
+
+            // Best-effort: disable WebKit media-session. Primary MPRIS fix is
+            // LazyAudio (defer src until user play) — this setting alone is not
+            // enough on all WebKitGTK builds.
+            #[cfg(target_os = "linux")]
+            match app.get_webview_window("main") {
+                Some(win) => {
+                    if let Err(error) = linux_webkit::disable_media_session(&win) {
+                        warn!("Failed to disable WebKit media session: {error}");
+                    }
+                }
+                None => warn!("Main webview missing; skipped WebKit media-session disable"),
+            }
+
+            Ok(())
+        });
 
     // Try to get APTABASE_KEY from environment, use empty string if not found
     let aptabase_key = option_env!("APTABASE_KEY").unwrap_or("");
@@ -140,16 +169,18 @@ pub async fn run() {
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 None,
             ))
-            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-                let _ = app
-                    .get_webview_window("main")
-                    .expect("no main window")
-                    .set_focus();
+            .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+                if let Some(command) = parse_external_recording_command(&args) {
+                    emit_external_recording_command(app, command);
+                } else if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_focus();
+                }
             }));
     }
 
     // Register command handlers (same for all platforms now)
     let builder = builder.invoke_handler(tauri::generate_handler![
+        take_pending_external_recording_command,
         write_text,
         simulate_enter_keystroke,
         // Audio recorder commands

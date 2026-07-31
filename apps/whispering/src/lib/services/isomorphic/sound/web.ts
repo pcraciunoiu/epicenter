@@ -1,28 +1,24 @@
-import { Ok } from 'wellcrafted/result';
-// import { extension } from '@epicenter/extension';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Ok, tryAsync } from 'wellcrafted/result';
 import type { PlaySoundService } from '.';
-import { audioElements } from './assets';
+import { playUiSound } from './assets';
+import { PlaySoundServiceErr } from './types';
 
 export function createPlaySoundServiceWeb(): PlaySoundService {
 	return {
 		playSound: async (soundName) => {
-			if (!document.hidden) {
-				await audioElements[soundName].play();
+			if (document.hidden) {
 				return Ok(undefined);
 			}
-			// const { error: playSoundError } = await extension.playSound({
-			// 	sound: soundName,
-			// });
-			// if (playSoundError) {
-			// 	return PlaySoundServiceErr(
-			// 		`We encountered an issue while playing the ${soundName} sound`,
-			// 		{
-			// 			context: { soundName },
-			// 			cause: playSoundError,
-			// 		}
-			// 	);
-			// }
-			return Ok(undefined);
+			return tryAsync({
+				try: async () => {
+					await playUiSound(soundName);
+				},
+				catch: (error) =>
+					PlaySoundServiceErr({
+						message: `Failed to play sound: ${extractErrorMessage(error)}`,
+					}),
+			});
 		},
 	};
 }
