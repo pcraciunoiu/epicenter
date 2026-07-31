@@ -32,3 +32,37 @@ pub fn disable_media_session(win: &WebviewWindow) -> Result<(), String> {
     })
     .map_err(|e| e.to_string())
 }
+
+/// Auto-allow WebKitGTK mic / device-info permission requests.
+///
+/// Without a handler, WebKitGTK denies `getUserMedia` / `enumerateDevices`,
+/// which breaks VAD and Manual dictation segments (both need a browser
+/// `MediaStream`). Capture may still fail on some WebKitGTK/PipeWire builds —
+/// see EpicenterHQ/epicenter#839.
+pub fn allow_media_permission_requests(win: &WebviewWindow) -> Result<(), String> {
+    win.with_webview(|platform| {
+        use webkit2gtk::glib::prelude::*;
+        use webkit2gtk::{
+            DeviceInfoPermissionRequest, PermissionRequestExt, UserMediaPermissionRequest,
+            WebViewExt,
+        };
+
+        platform.inner().connect_permission_request(|_webview, request| {
+            if request
+                .downcast_ref::<UserMediaPermissionRequest>()
+                .is_some()
+                || request
+                    .downcast_ref::<DeviceInfoPermissionRequest>()
+                    .is_some()
+            {
+                request.allow();
+                log::info!("Allowed WebKitGTK media permission request");
+                return true;
+            }
+            false
+        });
+
+        log::info!("Connected WebKitGTK permission-request handler for user media");
+    })
+    .map_err(|e| e.to_string())
+}

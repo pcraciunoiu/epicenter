@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { rpc } from '$lib/query';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { IS_LINUX } from '$lib/constants/platform';
 	import { cn } from '@epicenter/ui/utils';
 	import CaptionsIcon from '@lucide/svelte/icons/captions';
 
@@ -11,17 +13,24 @@
 	);
 
 	function toggle() {
-		settings.updateKey(
-			'recording.manual.segmentsEnabled',
-			!settings.value['recording.manual.segmentsEnabled'],
-		);
+		const next = !settings.value['recording.manual.segmentsEnabled'];
+		settings.updateKey('recording.manual.segmentsEnabled', next);
+		if (next && IS_LINUX) {
+			rpc.notify.warning.execute({
+				title: 'Dictation segments need WebView mic',
+				description:
+					'Same limitation as Voice Activated mode on Linux (WebKitGTK getUserMedia). If start fails, use Manual recording without segments. See github.com/EpicenterHQ/epicenter/issues/839',
+			});
+		}
 	}
 </script>
 
 <Button
 	class={cn(className)}
 	tooltip={isEnabled
-		? 'Dictation segments on — phrases insert after each pause'
+		? IS_LINUX
+			? 'Dictation segments on — may fail on Linux (needs WebView mic)'
+			: 'Dictation segments on — phrases insert after each pause'
 		: 'Dictation segments off'}
 	onclick={toggle}
 	variant="ghost"

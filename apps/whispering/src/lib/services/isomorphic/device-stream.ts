@@ -41,6 +41,36 @@ async function hasExistingAudioPermission(): Promise<boolean> {
 	return false;
 }
 
+/**
+ * Open the default microphone without a deviceId constraint.
+ * WebKitGTK often succeeds here when `deviceId: { exact }` / enumeration fails.
+ */
+async function getDefaultAudioStream(): Promise<
+	Result<MediaStream, DeviceStreamServiceError>
+> {
+	return tryAsync({
+		try: async () => {
+			try {
+				return await navigator.mediaDevices.getUserMedia({
+					audio: WHISPER_RECOMMENDED_MEDIA_TRACK_CONSTRAINTS,
+				});
+			} catch {
+				// Last resort: unconstrained audio (some WebKit builds reject whisper constraints)
+				return await navigator.mediaDevices.getUserMedia({ audio: true });
+			}
+		},
+		catch: (error) =>
+			DeviceStreamServiceErr({
+				message: `Unable to open the default microphone. Grant microphone permission to the app (desktop portal / browser settings) and try again. ${extractErrorMessage(error)}`,
+			}),
+	});
+}
+
+function deviceIdFromStream(stream: MediaStream): DeviceIdentifier {
+	const trackDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId;
+	return asDeviceIdentifier(trackDeviceId || 'default');
+}
+
 export async function enumerateDevices(): Promise<
 	Result<Device[], DeviceStreamServiceError>
 > {
@@ -58,7 +88,7 @@ export async function enumerateDevices(): Promise<
 				track.stop();
 			}
 			const audioInputDevices = devices.filter(
-				(device) => device.kind === 'audioinput',
+				(device) => device.kind === 'audioinput' && device.deviceId,
 			);
 			// On Web: Return Device objects with both ID and label
 			return audioInputDevices.map((device) => ({
@@ -85,6 +115,10 @@ async function getStreamForDeviceIdentifier(
 	const hasPermission = await hasExistingAudioPermission();
 	if (!hasPermission) {
 		// extension.openWhisperingTab({});
+	}
+	// Empty / placeholder IDs cannot use exact constraints
+	if (!deviceIdentifier || deviceIdentifier === 'default') {
+		return getDefaultAudioStream();
 	}
 	return tryAsync({
 		try: async () => {
@@ -118,12 +152,25 @@ export async function getRecordingStream({
 > {
 	// Try preferred device first if specified
 	if (!selectedDeviceId) {
-		// No device selected
+		// No device selected — prefer unconstrained default (works better on WebKitGTK)
 		sendStatus({
 			title: '🔍 No Device Selected',
 			description:
 				"No worries! We'll find the best microphone for you automatically...",
 		});
+
+		const { data: defaultStream, error: defaultStreamError } =
+			await getDefaultAudioStream();
+		if (!defaultStreamError) {
+			return Ok({
+				stream: defaultStream,
+				deviceOutcome: {
+					outcome: 'fallback',
+					reason: 'no-device-selected',
+					deviceId: deviceIdFromStream(defaultStream),
+				},
+			});
+		}
 	} else {
 		sendStatus({
 			title: '🎯 Connecting Device',
@@ -158,23 +205,32 @@ export async function getRecordingStream({
 	> => {
 		const { data: devices, error: enumerateDevicesError } =
 			await enumerateDevices();
-		if (enumerateDevicesError)
-			return DeviceStreamServiceErr({
-				message:
-					'Error enumerating recording devices and acquiring first available stream. Please make sure you have given permission to access your audio devices',
-			});
-
-		for (const device of devices) {
-			const { data: stream, error } = await getStreamForDeviceIdentifier(
-				device.id,
-			);
-			if (!error) {
-				return Ok({ stream, deviceId: device.id });
+		if (!enumerateDevicesError) {
+			for (const device of devices) {
+				const { data: stream, error } = await getStreamForDeviceIdentifier(
+					device.id,
+				);
+				if (!error) {
+					return Ok({ stream, deviceId: device.id });
+				}
 			}
 		}
 
+		// Enumeration / exact deviceId often fails on WebKitGTK; try default mic
+		const { data: defaultStream, error: defaultStreamError } =
+			await getDefaultAudioStream();
+		if (!defaultStreamError) {
+			return Ok({
+				stream: defaultStream,
+				deviceId: deviceIdFromStream(defaultStream),
+			});
+		}
+
 		return DeviceStreamServiceErr({
-			message: 'Unable to connect to any available microphone',
+			message:
+				enumerateDevicesError?.message ??
+				defaultStreamError.message ??
+				'Unable to connect to any available microphone',
 		});
 	};
 
@@ -183,8 +239,8 @@ export async function getRecordingStream({
 		await getFirstAvailableStream();
 	if (getFallbackStreamError) {
 		const errorMessage = selectedDeviceId
-			? "We couldn't connect to any microphones. Make sure they're plugged in and try again!"
-			: "Hmm... We couldn't find any microphones to use. Check your connections and try again!";
+			? "We couldn't connect to any microphones. Make sure they're plugged in and try again! Dictation segments and Voice Activated mode use the WebView microphone (not CPAL/FFmpeg)."
+			: "Hmm... We couldn't find any microphones to use. Dictation segments need WebView mic access — grant the portal permission, or try Voice Activated mode to verify.";
 		return DeviceStreamServiceErr({
 			message: errorMessage,
 		});

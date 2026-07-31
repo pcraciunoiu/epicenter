@@ -242,9 +242,14 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="absolute -right-40 bottom-4 flex items-center gap-0.5">
+				<div class="absolute -right-44 bottom-4 flex items-center gap-0.5">
 					<DictationSegmentsToggle />
-					<ManualDeviceSelector />
+					{#if settings.value['recording.manual.segmentsEnabled']}
+						<!-- Segments use navigator/VAD capture, not CPAL/FFmpeg -->
+						<VadDeviceSelector />
+					{:else}
+						<ManualDeviceSelector />
+					{/if}
 					<CompressionSelector />
 					<TranscriptionSelector />
 					<TransformationSelector />

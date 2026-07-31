@@ -128,8 +128,11 @@ pub async fn run() {
                     if let Err(error) = linux_webkit::disable_media_session(&win) {
                         warn!("Failed to disable WebKit media session: {error}");
                     }
+                    if let Err(error) = linux_webkit::allow_media_permission_requests(&win) {
+                        warn!("Failed to install WebKit media permission handler: {error}");
+                    }
                 }
-                None => warn!("Main webview missing; skipped WebKit media-session disable"),
+                None => warn!("Main webview missing; skipped WebKit media helpers"),
             }
 
             Ok(())

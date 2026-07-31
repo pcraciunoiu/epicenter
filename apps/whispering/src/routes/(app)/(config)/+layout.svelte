@@ -63,7 +63,11 @@
 					</Button>
 				{:else}
 					<DictationSegmentsToggle />
-					<ManualDeviceSelector />
+					{#if settings.value['recording.manual.segmentsEnabled']}
+						<VadDeviceSelector />
+					{:else}
+						<ManualDeviceSelector />
+					{/if}
 					<CompressionSelector />
 					<TranscriptionSelector />
 					<TransformationSelector />
