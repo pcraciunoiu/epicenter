@@ -9,8 +9,11 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
 	plugins: [
-		sveltekit(),
+		// Tailwind must run before sveltekit — otherwise @tailwindcss/vite can
+		// receive full .svelte SFCs as CSS and throw Invalid declaration errors.
+		// See https://tailwindcss.com/docs/installation/framework-guides/sveltekit
 		tailwindcss(),
+		sveltekit(),
 		devtoolsJson(),
 		nodePolyfills({
 			// Enable polyfills for Buffer (needed by gray-matter)

@@ -180,17 +180,25 @@ export const settings = (() => {
  */
 async function stopAllRecordingModesExcept(modeToKeep: RecordingMode) {
 	const { data: recorderState } = await rpc.recorder.getRecorderState.fetch();
+	const recordingMode = settings.value['recording.mode'];
+	const isManualSegmentsSession =
+		recordingMode === 'manual' && vadRecorder.state !== 'IDLE';
 
 	// Each recording mode with its check and stop logic
 	const recordingModes = [
 		{
 			mode: 'manual' as const,
-			isActive: () => recorderState === 'RECORDING',
-			stop: () => rpc.commands.stopManualRecording.execute(),
+			isActive: () =>
+				recorderState === 'RECORDING' || isManualSegmentsSession,
+			stop: () =>
+				isManualSegmentsSession
+					? rpc.commands.stopManualSegmentsSession.execute()
+					: rpc.commands.stopManualRecording.execute(),
 		},
 		{
 			mode: 'vad' as const,
-			isActive: () => vadRecorder.state !== 'IDLE',
+			isActive: () =>
+				vadRecorder.state !== 'IDLE' && recordingMode === 'vad',
 			stop: () => rpc.commands.stopVadRecording.execute(),
 		},
 	] satisfies {

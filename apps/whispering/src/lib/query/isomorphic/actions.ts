@@ -42,6 +42,54 @@ let manualRecordingStartTime: number | null = null;
  */
 let isRecordingOperationBusy = false;
 
+/**
+ * True when Manual mode is running a VAD-backed dictation-segments session
+ * (UI stays on Manual; capture uses vadRecorder).
+ */
+export function isManualSegmentsSessionActive() {
+	return (
+		settings.value['recording.mode'] === 'manual' &&
+		vadRecorder.state !== 'IDLE'
+	);
+}
+
+async function onSegmentCaptured({
+	blob,
+	analyticsType,
+	captureToastTitle,
+	captureToastDescription,
+	completionTitle,
+	completionDescription,
+}: {
+	blob: Blob;
+	analyticsType: 'vad_recording_completed' | 'manual_segments_phrase_completed';
+	captureToastTitle: string;
+	captureToastDescription: string;
+	completionTitle: string;
+	completionDescription: string;
+}) {
+	const toastId = nanoid();
+	notify.success.execute({
+		id: toastId,
+		title: captureToastTitle,
+		description: captureToastDescription,
+	});
+	console.info(captureToastTitle);
+	sound.playSoundIfEnabled.execute('vad-capture');
+
+	rpc.analytics.logEvent.execute({
+		type: analyticsType,
+		blob_size: blob.size,
+	});
+
+	await processRecordingPipeline({
+		blob,
+		toastId,
+		completionTitle,
+		completionDescription,
+	});
+}
+
 // Internal mutations for manual recording
 const startManualRecording = defineMutation({
 	mutationKey: ['commands', 'startManualRecording'] as const,
@@ -52,6 +100,22 @@ const startManualRecording = defineMutation({
 			return Ok(undefined);
 		}
 		isRecordingOperationBusy = true;
+
+		// PTT / Manual recorder must not share the mic with a segments session
+		if (isManualSegmentsSessionActive()) {
+			const { error: stopSegmentsError } =
+				await vadRecorder.stopActiveListening();
+			if (stopSegmentsError) {
+				isRecordingOperationBusy = false;
+				notify.error.execute(stopSegmentsError);
+				return Ok(undefined);
+			}
+			notify.info.execute({
+				title: 'Dictation segments stopped',
+				description: 'Stopped dictation segments so push-to-talk can use the mic.',
+			});
+			sound.playSoundIfEnabled.execute('vad-stop');
+		}
 
 		await settings.switchRecordingMode('manual');
 
@@ -215,25 +279,12 @@ const startVadRecording = defineMutation({
 					});
 				},
 				onSpeechEnd: async (blob) => {
-					const toastId = nanoid();
-					notify.success.execute({
-						id: toastId,
-						title: '🎙️ Voice activated speech captured',
-						description: 'Your voice activated speech has been captured.',
-					});
-					console.info('Voice activated speech captured');
-					sound.playSoundIfEnabled.execute('vad-capture');
-
-					// Log VAD recording completion
-					rpc.analytics.logEvent.execute({
-						type: 'vad_recording_completed',
-						blob_size: blob.size,
-						// VAD doesn't track duration by default
-					});
-
-					await processRecordingPipeline({
+					await onSegmentCaptured({
 						blob,
-						toastId,
+						analyticsType: 'vad_recording_completed',
+						captureToastTitle: '🎙️ Voice activated speech captured',
+						captureToastDescription:
+							'Your voice activated speech has been captured.',
 						completionTitle: '✨ Voice activated capture complete!',
 						completionDescription:
 							'Voice activated capture complete! Ready for another take',
@@ -323,16 +374,141 @@ const stopVadRecording = defineMutation({
 	},
 });
 
+/**
+ * Start a Manual-mode dictation-segments session (VAD-backed, UI stays Manual).
+ */
+const startManualSegmentsSession = defineMutation({
+	mutationKey: ['commands', 'startManualSegmentsSession'] as const,
+	mutationFn: async () => {
+		await settings.switchRecordingMode('manual');
+
+		const toastId = nanoid();
+		console.info('Starting manual dictation segments session');
+		notify.loading.execute({
+			id: toastId,
+			title: '🎙️ Starting dictation segments...',
+			description: 'Listening for phrases after each pause...',
+		});
+
+		const { data: deviceAcquisitionOutcome, error: startActiveListeningError } =
+			await vadRecorder.startActiveListening({
+				onSpeechStart: () => {
+					notify.success.execute({
+						title: '🎙️ Speech started',
+						description: 'Recording phrase. Pause to insert.',
+					});
+				},
+				onSpeechEnd: async (blob) => {
+					await onSegmentCaptured({
+						blob,
+						analyticsType: 'manual_segments_phrase_completed',
+						captureToastTitle: '🎙️ Phrase captured',
+						captureToastDescription: 'Transcribing and inserting phrase...',
+						completionTitle: '✨ Phrase added',
+						completionDescription: 'Ready for the next phrase',
+					});
+				},
+			});
+
+		if (startActiveListeningError) {
+			notify.error.execute({ id: toastId, ...startActiveListeningError });
+			return Ok(undefined);
+		}
+
+		switch (deviceAcquisitionOutcome.outcome) {
+			case 'success': {
+				notify.success.execute({
+					id: toastId,
+					title: '🎙️ Dictation segments started',
+					description: 'Speak — phrases insert after each pause.',
+				});
+				break;
+			}
+			case 'fallback': {
+				settings.updateKey(
+					'recording.navigator.deviceId',
+					deviceAcquisitionOutcome.deviceId,
+				);
+				switch (deviceAcquisitionOutcome.reason) {
+					case 'no-device-selected': {
+						notify.info.execute({
+							id: toastId,
+							title: '🎙️ Dictation started with available microphone',
+							description:
+								'No microphone was selected, so we automatically connected to an available one. You can update your selection in settings.',
+							action: {
+								type: 'link',
+								label: 'Open Settings',
+								href: '/settings/recording',
+							},
+						});
+						break;
+					}
+					case 'preferred-device-unavailable': {
+						notify.info.execute({
+							id: toastId,
+							title: '🎙️ Dictation switched to different microphone',
+							description:
+								"Your previously selected microphone wasn't found, so we automatically connected to an available one.",
+							action: {
+								type: 'link',
+								label: 'Open Settings',
+								href: '/settings/recording',
+							},
+						});
+						break;
+					}
+				}
+			}
+		}
+
+		sound.playSoundIfEnabled.execute('vad-start');
+		return Ok(undefined);
+	},
+});
+
+const stopManualSegmentsSession = defineMutation({
+	mutationKey: ['commands', 'stopManualSegmentsSession'] as const,
+	mutationFn: async () => {
+		const toastId = nanoid();
+		console.info('Stopping manual dictation segments session');
+		notify.loading.execute({
+			id: toastId,
+			title: '⏸️ Stopping dictation segments...',
+			description: 'Ending your dictation session...',
+		});
+		const { error: stopVadError } = await vadRecorder.stopActiveListening();
+		if (stopVadError) {
+			notify.error.execute({ id: toastId, ...stopVadError });
+			return Ok(undefined);
+		}
+		notify.success.execute({
+			id: toastId,
+			title: '🎙️ Dictation segments stopped',
+			description: 'Your dictation session has ended.',
+		});
+		sound.playSoundIfEnabled.execute('vad-stop');
+		return Ok(undefined);
+	},
+});
+
 export const commands = {
 	startManualRecording,
 	stopManualRecording,
 	startVadRecording,
 	stopVadRecording,
+	startManualSegmentsSession,
+	stopManualSegmentsSession,
 
-	// Toggle manual recording
+	// Toggle manual recording (or dictation segments when enabled)
 	toggleManualRecording: defineMutation({
 		mutationKey: ['commands', 'toggleManualRecording'] as const,
 		mutationFn: async () => {
+			// Active segments session (may outlive a mid-session icon flip)
+			if (isManualSegmentsSessionActive()) {
+				return await stopManualSegmentsSession.execute(undefined);
+			}
+
 			const { data: recorderState, error: getRecorderStateError } =
 				await recorder.getRecorderState.fetch();
 			if (getRecorderStateError) {
@@ -342,14 +518,42 @@ export const commands = {
 			if (recorderState === 'RECORDING') {
 				return await stopManualRecording.execute(undefined);
 			}
+
+			// Start segments session when the preference is on (deferred mid-session flips)
+			if (settings.value['recording.manual.segmentsEnabled']) {
+				return await startManualSegmentsSession.execute(undefined);
+			}
+
 			return await startManualRecording.execute(undefined);
 		},
 	}),
 
-	// Cancel manual recording
+	// Cancel manual recording (or dictation segments session)
 	cancelManualRecording: defineMutation({
 		mutationKey: ['commands', 'cancelManualRecording'] as const,
 		mutationFn: async () => {
+			if (isManualSegmentsSessionActive()) {
+				const toastId = nanoid();
+				notify.loading.execute({
+					id: toastId,
+					title: '⏸️ Canceling dictation segments...',
+					description: 'Cleaning up dictation session...',
+				});
+				const { error: stopVadError } = await vadRecorder.stopActiveListening();
+				if (stopVadError) {
+					notify.error.execute({ id: toastId, ...stopVadError });
+					return Ok(undefined);
+				}
+				notify.success.execute({
+					id: toastId,
+					title: '✅ All Done!',
+					description: 'Dictation segments cancelled successfully',
+				});
+				sound.playSoundIfEnabled.execute('manual-cancel');
+				console.info('Dictation segments cancelled');
+				return Ok(undefined);
+			}
+
 			// Prevent concurrent recording operations
 			if (isRecordingOperationBusy) {
 				console.info(

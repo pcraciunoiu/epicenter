@@ -11,6 +11,33 @@ import {
 } from '$lib/services/isomorphic/device-stream';
 import { settings } from '$lib/stores/settings.svelte';
 
+/** Silero score (0–1) above which a frame counts as speech. Lower = more sensitive. */
+const VAD_POSITIVE_SPEECH_THRESHOLD = 0.3;
+/** Below this, frames count as silence (typically ~0.15 under positive). */
+const VAD_NEGATIVE_SPEECH_THRESHOLD = 0.15;
+/** Fixed software gain before VAD — WebView AGC is unreliable on Linux. */
+const VAD_INPUT_GAIN = 2;
+/** Pre-roll frames at 1536/16kHz (~1.15s) so phrase starts are not clipped. */
+const VAD_PRE_SPEECH_PAD_FRAMES = 12;
+
+/**
+ * Amplify a mic MediaStream for quieter WebView capture.
+ * Caller must close `audioContext` and stop the source stream on cleanup.
+ */
+function amplifyMediaStream(
+	stream: MediaStream,
+	gainValue: number,
+): { stream: MediaStream; audioContext: AudioContext } {
+	const audioContext = new AudioContext();
+	const source = audioContext.createMediaStreamSource(stream);
+	const gain = audioContext.createGain();
+	gain.gain.value = gainValue;
+	const destination = audioContext.createMediaStreamDestination();
+	source.connect(gain);
+	gain.connect(destination);
+	return { stream: destination.stream, audioContext };
+}
+
 /**
  * Creates a Voice Activity Detection (VAD) recorder with reactive state.
  *
@@ -28,6 +55,32 @@ function createVadRecorder() {
 	let _maybeVad: MicVAD | null = null;
 	let _state = $state<VadState>('IDLE');
 	let _currentStream: MediaStream | null = null;
+	let _gainAudioContext: AudioContext | null = null;
+
+	async function cleanupCaptureResources() {
+		if (_maybeVad) {
+			trySync({
+				try: () => _maybeVad?.destroy(),
+				catch: () => Ok(undefined),
+			});
+			_maybeVad = null;
+		}
+		if (_gainAudioContext) {
+			await tryAsync({
+				try: () => _gainAudioContext!.close(),
+				catch: () =>
+					WhisperingErr({
+						title: '⚠️ Failed to close VAD gain context',
+						description: 'Audio context cleanup failed.',
+					}),
+			});
+			_gainAudioContext = null;
+		}
+		if (_currentStream) {
+			cleanupRecordingStream(_currentStream);
+			_currentStream = null;
+		}
+	}
 
 	return {
 		/**
@@ -105,12 +158,41 @@ function createVadRecorder() {
 			const { stream, deviceOutcome } = streamResult;
 			_currentStream = stream;
 
-			// Create VAD with the validated stream
+			const { data: amplified, error: amplifyError } = trySync({
+				try: () => amplifyMediaStream(stream, VAD_INPUT_GAIN),
+				catch: (error) =>
+					WhisperingErr({
+						title: '❌ Failed to amplify microphone',
+						description: extractErrorMessage(error),
+						action: { type: 'more-details', error },
+					}),
+			});
+			if (amplifyError) {
+				cleanupRecordingStream(stream);
+				_currentStream = null;
+				return Err(amplifyError);
+			}
+
+			_gainAudioContext = amplified.audioContext;
+			await tryAsync({
+				try: () => amplified.audioContext.resume(),
+				catch: () =>
+					WhisperingErr({
+						title: '⚠️ Audio context suspended',
+						description: 'Could not resume AudioContext for VAD gain.',
+					}),
+			});
+
+			// Create VAD with the amplified stream
 			const { data: newVad, error: initializeVadError } = await tryAsync({
 				try: () =>
 					MicVAD.new({
-						stream,
+						stream: amplified.stream,
 						submitUserSpeechOnPause: true,
+						model: 'v5',
+						positiveSpeechThreshold: VAD_POSITIVE_SPEECH_THRESHOLD,
+						negativeSpeechThreshold: VAD_NEGATIVE_SPEECH_THRESHOLD,
+						preSpeechPadFrames: VAD_PRE_SPEECH_PAD_FRAMES,
 						onSpeechStart: () => {
 							_state = 'SPEECH_DETECTED';
 							onSpeechStart();
@@ -128,7 +210,6 @@ function createVadRecorder() {
 						onSpeechRealStart: () => {
 							onSpeechRealStart?.();
 						},
-						model: 'v5',
 					}),
 				catch: (error) =>
 					WhisperingErr({
@@ -140,9 +221,7 @@ function createVadRecorder() {
 			});
 
 			if (initializeVadError) {
-				// Clean up stream if VAD initialization fails
-				cleanupRecordingStream(stream);
-				_currentStream = null;
+				await cleanupCaptureResources();
 				return Err(initializeVadError);
 			}
 
@@ -158,14 +237,9 @@ function createVadRecorder() {
 			});
 
 			if (startError) {
-				// Clean up everything on start error
-				trySync({
-					try: () => newVad.destroy(),
-					catch: () => Ok(undefined),
-				});
-				cleanupRecordingStream(stream);
-				_maybeVad = null;
-				_currentStream = null;
+				_maybeVad = newVad;
+				await cleanupCaptureResources();
+				_state = 'IDLE';
 				return Err(startError);
 			}
 
@@ -179,11 +253,17 @@ function createVadRecorder() {
 		 * Sets `state` back to 'IDLE'.
 		 */
 		async stopActiveListening() {
-			if (!_maybeVad) return Ok(undefined);
+			if (!_maybeVad && !_currentStream && !_gainAudioContext) {
+				return Ok(undefined);
+			}
 
 			const vadInstance = _maybeVad;
+			_maybeVad = null;
+
 			const { error: destroyError } = trySync({
-				try: () => vadInstance.destroy(),
+				try: () => {
+					vadInstance?.destroy();
+				},
 				catch: (error) =>
 					WhisperingErr({
 						title: '❌ Failed to stop VAD',
@@ -192,11 +272,20 @@ function createVadRecorder() {
 					}),
 			});
 
-			// Always clean up, even if destroy had an error
-			_maybeVad = null;
 			_state = 'IDLE';
 
-			// Clean up our managed stream
+			if (_gainAudioContext) {
+				await tryAsync({
+					try: () => _gainAudioContext!.close(),
+					catch: () =>
+						WhisperingErr({
+							title: '⚠️ Failed to close VAD gain context',
+							description: 'Audio context cleanup failed.',
+						}),
+				});
+				_gainAudioContext = null;
+			}
+
 			if (_currentStream) {
 				cleanupRecordingStream(_currentStream);
 				_currentStream = null;
